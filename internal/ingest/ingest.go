@@ -352,12 +352,16 @@ func parseEpoch(text string) (time.Time, error) {
 	}
 	seconds := int64(value)
 	fraction := value - float64(seconds)
+	unit := int64(1)
 	if seconds > 1000000000000000 {
-		seconds /= 1000000
+		unit = 1000000
 	} else if seconds > 1000000000000 {
-		seconds /= 1000
+		unit = 1000
 	}
-	nanos := int64(fraction * float64(time.Second))
+	remainder := seconds % unit
+	seconds /= unit
+	nanosPerUnit := int64(time.Second) / unit
+	nanos := remainder*nanosPerUnit + int64(fraction*float64(nanosPerUnit))
 	parsed := time.Unix(seconds, nanos).UTC()
 	if parsed.Year() < 1970 || parsed.Year() > 9999 {
 		return time.Time{}, fmt.Errorf("epoch timestamp out of range")
