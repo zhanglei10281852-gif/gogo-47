@@ -346,18 +346,49 @@ func parseTimestamp(value any, layouts []string) (time.Time, error) {
 }
 
 func parseEpoch(text string) (time.Time, error) {
-	value, err := strconv.ParseFloat(text, 64)
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return time.Time{}, fmt.Errorf("invalid epoch timestamp %q", text)
+	}
+	// Integer epoch values may be seconds, milliseconds, or microseconds.
+	// Split them with integer arithmetic so the sub-second portion is kept
+	// exactly instead of being lost when the truncated seconds are scaled.
+	if n, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+		var seconds, nanos int64
+		switch {
+		case n > 1000000000000000: // microseconds
+			seconds = n / 1000000
+			nanos = (n % 1000000) * 1000
+		case n > 1000000000000: // milliseconds
+			seconds = n / 1000
+			nanos = (n % 1000) * 1000000
+		default: // seconds
+			seconds = n
+		}
+		parsed := time.Unix(seconds, nanos).UTC()
+		if parsed.Year() < 1970 || parsed.Year() > 9999 {
+			return time.Time{}, fmt.Errorf("epoch timestamp out of range")
+		}
+		return parsed, nil
+	}
+	// Decimal epoch values are interpreted as fractional seconds. Scale the
+	// whole value for millisecond/microsecond magnitudes so the sub-second
+	// digits are preserved; second-magnitude decimals are left untouched.
+	value, err := strconv.ParseFloat(trimmed, 64)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("invalid epoch timestamp %q", text)
 	}
-	seconds := int64(value)
-	fraction := value - float64(seconds)
-	if seconds > 1000000000000000 {
-		seconds /= 1000000
-	} else if seconds > 1000000000000 {
-		seconds /= 1000
+	abs := value
+	if abs < 0 {
+		abs = -abs
 	}
-	nanos := int64(fraction * float64(time.Second))
+	if abs > 1000000000000000 { // microseconds
+		value /= 1000000
+	} else if abs > 1000000000000 { // milliseconds
+		value /= 1000
+	}
+	seconds := int64(value)
+	nanos := int64((value - float64(seconds)) * float64(time.Second))
 	parsed := time.Unix(seconds, nanos).UTC()
 	if parsed.Year() < 1970 || parsed.Year() > 9999 {
 		return time.Time{}, fmt.Errorf("epoch timestamp out of range")
